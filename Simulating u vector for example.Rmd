@@ -1,0 +1,122 @@
+---
+title: "Revisions Alg Stats Paper"
+output: pdf_document
+date: "2026-06-15"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+This is the code to generate the vector $u$ via sequential simulation of $M=1000$ initial states and subsequent three visited states. (For the revisions of the algebraic statistics paper.) 
+
+
+# Simulation 
+
+```{r}
+set.seed(123) #setting the random seed. 
+
+n = 1000 #number of trajectories and initial values used for simulation. 
+
+# states are labelled 0, 1, 2 in this illness-death model according to example 1. No reversible transition between 0 and 1 for this example. 
+
+states = c(0, 1, 2)
+
+# Generating the initial distribution vector
+pi_vector = c(0.700, 0.300, 0)
+
+# Generating  the transition matrix
+A_mat = matrix(c(
+  0.600, 0.275, 0.125,
+  0.000, 0.750, 0.250,
+  0.000, 0.000, 1.000
+), nrow = 3, byrow = TRUE)
+
+
+
+# Listing all the possible path sequences (4-time step), in the same order of Table 1 in the manuscript. 
+path_order = c(
+  "0000", "0001", "0002", "0011", "0012", "0022",
+  "0111", "0112", "0122", "0222",
+  "1111", "1112", "1122", "1222"
+)
+
+# creating the storage for simulated paths
+sim_paths = character(n)
+
+for (i in 1:n) { #iterating
+  
+  # simulate initial state
+  x0 = sample(states, size = 1, prob = pi_vector)
+  
+  # Simulate state at time 1
+  x1 =sample(states, size = 1, prob = A_mat[x0 + 1, ])
+  
+  # Simulate state at time 2
+  x2 = sample(states, size = 1, prob = A_mat[x1 + 1, ])
+  
+  # Simulate state at time 3
+  x3 = sample(states, size = 1, prob = A_mat[x2 + 1, ])
+  
+  # Store four-time-point path
+  sim_paths[i] = paste0(x0, x1, x2, x3)
+}
+
+# Counting path realizations (frequencies) AND in the same order as Table 1 in the manuscript. 
+u = table(factor(sim_paths, levels = path_order)) #table funciton can tabularize nicely
+
+u = as.integer(u)
+names(u) = path_order
+
+u
+sum(u)
+```
+
+
+
+# Estimation part
+
+(Using the code directly provided by author Sangita Kulathinal)
+
+```{r}
+p = c("0000","0001","0002","0011","0012","0022","0111","0112","0122","0222","1111","1112","1122","1222")
+
+check = data.frame(path = p, u = u)
+
+check$inst1 = substr(check$p, 1,1)
+check$inst2 = substr(check$p, 2,2)
+check$inst3 = substr(check$p, 3,3)
+check$inst4 = substr(check$p, 4,4)
+
+state_num0 = sum((check$inst1==0)*u +  (check$inst2==0)*u+ (check$inst3==0)*u)
+state_num1 = sum((check$inst1==1)*u +  (check$inst2==1)*u+ (check$inst3==1)*u)
+state_num2 = sum((check$inst1==2)*u +  (check$inst2==2)*u+ (check$inst3==2)*u)
+
+trans00 = sum((check$inst1==0)*(check$inst2==0)*u + (check$inst2==0)*(check$inst3==0)*u + (check$inst3==0)*(check$inst4==0)*u)
+trans01 = sum((check$inst1==0)*(check$inst2==1)*u + (check$inst2==0)*(check$inst3==1)*u + (check$inst3==0)*(check$inst4==1)*u)
+trans02 = sum((check$inst1==0)*(check$inst2==2)*u + (check$inst2==0)*(check$inst3==2)*u + (check$inst3==0)*(check$inst4==2)*u)
+
+trans11 = sum((check$inst1==1)*(check$inst2==1)*u + (check$inst2==1)*(check$inst3==1)*u + (check$inst3==1)*(check$inst4==1)*u)
+trans12 = sum((check$inst1==1)*(check$inst2==2)*u + (check$inst2==1)*(check$inst3==2)*u + (check$inst3==1)*(check$inst4==2)*u)
+
+# transition probabilities
+A = matrix(c(trans00/state_num0, trans01/state_num0, trans02/state_num0, 0,trans11/state_num1,trans12/state_num1, 0,0,0), byrow=T,3,3)
+
+```
+
+
+```{r}
+#print(u)
+```
+
+```{r}
+print(A)
+```
+```{r}
+# initial distribution (from Sangita's code)
+initial_dist = c(sum((check$inst1==0)*u)/sum(u), sum((check$inst1==1)*u)/sum(u))
+
+print(initial_dist)
+```
+Code completed June 2026. 

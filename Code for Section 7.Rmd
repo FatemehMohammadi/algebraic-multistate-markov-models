@@ -1,0 +1,668 @@
+---
+title: "R Code Section 7 - Discrete-time, discrete-state multistate Markov models from the perspective of algebraic statistics"
+author: "Etienne Sebag"
+date: "2026-01-23"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## AI Disclosure: 
+
+Generative AI tools were used in generating smaller sections of the code that follows, mostly for the purposes of quick and efficient data transformation and to assist in smaller coding tasks such as de-bugging and safety checks. 
+
+
+## Preliminaries. 
+
+Let us recall the essentials: 
+
+A) We have 27 states (26 states (which are the letters)  plus one absorbing state (the space). 
+
+B) Each word corresponds to a specific trajectory, or path. 
+
+C) **We want each trajectory to have the same length.** Hence, we are padding the trajectories with a "space", and considering that the maximum length L is the longest word in the state space. So the time horizon of the process goes from $l=1,2...,L, L+1.$
+
+D) Each location of a letter is a time instance/time point. According to the notations in the overleaf,the time index starts from 1 so we have $X_1, X_2, ..., X_L,X_{L+1}$. (in our case).
+
+In the example of "house" word,
+{X1 = h, X2 = o, X3 = u, X4 = s, X5 = e}. If L = 8 then we will add X6
+= X7 = X8 = 27 (absorbing state, space.) [other letters should be numbered forthe sake of consistency]. Each of such sequence contributes to the
+likelihood.
+
+
+## Importing the Data
+
+```{r}
+# import
+data = "shakespeare.txt"
+
+# making the file be essentially one big string
+txt = paste(readLines(data, warn = FALSE, encoding = "UTF-8"), collapse = " ")
+```
+
+## Initial Cleaning
+
+```{r}
+# making everything lower case just for convenience sake and so we only deal with 26 states (a-z) + the 1 absorbing state (space)
+
+txt = tolower(txt)
+
+# keeping only letters and spaces so that, basically, anything not a-z becomes a space
+txt = gsub("[^a-z ]", " ", txt)
+
+# collapsing multiple spaces into just a single space
+txt = gsub(" +", " ", txt)
+
+# trim leading/trailing spaces
+txt = trimws(txt)
+```
+
+## Splitting Into Words
+
+```{r}
+words = strsplit(txt, " ", fixed = TRUE)[[1]]
+
+# safecheck: drop any empty strings
+words = words[words != ""]
+
+#sanity check to see what is happening at this stage:
+
+head(words,20)
+```
+##  Removing one-letter words
+
+```{r}
+words = words[nchar(words) > 1]
+
+```
+
+
+
+#  Fixing and working with the length of a word/trajectory:
+
+
+```{r}
+
+# If L is the maximal length of a word, we should have 1,2, ..., L, L+1 times just to have space for a space " " in position (L+1). 
+
+
+lens = nchar(words)
+u_lens = sort(unique(lens), decreasing = TRUE)
+
+if (length(u_lens) < 2) stop("Not enough distinct word lengths to define a second-longest length.")
+
+L = u_lens[2]        # extracting the second-longest word length just for visualization purposes
+T_horizon = L + 1    # according to our notation and problem set-up in the manuscript
+
+# WE Drop words longer than L (this removes the single longest and any other outliers)
+words <- words[nchar(words) <= L]
+
+# checks:
+
+cat("Second-longest word length L =", L, "\n")
+cat("Trajectory length (columns) L+1 =", T_horizon, "\n")
+cat("Number of remaining word tokens =", length(words), "\n\n")
+```
+
+#  Building the array
+
+GOAL:  Forming data that corresponds on an array of letters of equal length where after the 1st empty space we complete the array by adding (padding) mode empty spaces.
+
+```{r}
+# We recall: L is the maximum retained word length
+# T_horizon is the number of time points, including the final space
+T_horizon <- L + 1
+
+make_traj <- function(w, T_horizon) {
+  k <- nchar(w)
+  paste0(w, strrep(" ", T_horizon - k))
+}
+
+traj <- vapply(words, make_traj, FUN.VALUE = character(1), T_horizon = T_horizon)
+```
+
+# Counting the trajectories
+
+```{r}
+
+tab = table(traj)                 # named integer vector
+traj_unique = names(tab)
+counts = as.integer(tab)
+
+cat("Number of distinct trajectories =", length(traj_unique), "\n\n")
+```
+
+# Combining everything
+
+```{r}
+
+# turning distinct trajectory strings into a matrix (L+1 columns)
+    # and adding/appending the count column at the end.
+
+# and 
+# Splitting each trajectory string into single characters
+traj_list = strsplit(traj_unique, "", fixed = TRUE)
+W_unique = do.call(rbind, traj_list)
+
+# Safety check: should be exactly T_horizon columns
+stopifnot(ncol(W_unique) == T_horizon)
+
+# This (df) is the Final data frame we create after applying many cleaning steps and pre-processing steps:L letter columns + count
+df <- as.data.frame(W_unique, stringsAsFactors = FALSE)
+names(df) <- paste0("t", 1:L)   # FIX: only 1:L
+df$count <- counts
+
+```
+
+
+```{r}
+#Cleaning up "df": (column names), simply because before the "t_18" column did not have a name. 
+
+
+names(df)[1:T_horizon] <- paste0("t", 1:T_horizon)
+
+# keeping the count column name
+names(df)[T_horizon + 1] <- "count"
+
+# Check
+names(df)
+
+
+```
+
+
+## Sanity and Verification checks: 
+
+```{r}
+words <- words[nchar(words) <= L]
+
+# length of each retained word
+lens <- nchar(words)
+
+# and the longest retained length
+max_len <- max(lens)
+
+# Extracting words with that length
+longest_words <- unique(words[lens == max_len])
+
+max_len
+longest_words
+```
+## Saving the file
+
+```{r}
+write.csv(df, "data_Shakespeare_final_github.csv", row.names = FALSE)
+```
+
+
+# Extra/Additional work for revisions of manuscript based on referee feedback: 
+
+Computing the empirical frequency of "the" after applying the same cleaning and filtering steps that produce the above final dataset "df". 
+
+```{r}
+# Empirical frequency of "the" in the cleaned corpus represented by df
+
+n_the <- sum(words == "the")
+n_words <- length(words)
+
+freq_the <- n_the / n_words
+
+cat("Number of occurrences of 'the':", n_the, "\n")
+cat("Total number of word tokens:", n_words, "\n")
+cat("Empirical frequency of 'the':", freq_the, "\n")
+```
+
+
+
+###############################################################
+
+## MLE computation for the Homogeneous case
+
+```{r}
+# setting-up
+
+states = c(letters, " ") #this is basically the state space
+
+S = length(states) # returns 27
+
+print(S) #verifying
+```
+
+
+```{r}
+t_cols <- df[, paste0("t", 1:T_horizon), drop = FALSE]
+L_time <- ncol(t_cols)
+
+#just to be safe:
+
+if (L<2) stop("need to select and extract at least two time columns in order to make sense of a tpm")
+```
+
+
+
+```{r}
+N_total  = sum(df$count) #total number of words INCLUDING their multiplicity
+
+print(N_total)
+```
+
+## Working with the Initial Distribution
+
+```{r}
+#MLE FOR THE INITIAL DISTRIBUTION ROW VECTOR PI
+
+start_counts = tapply(df$count, df$t1, sum)
+
+# this counts how often (proportion) the first symbol (so at time t1) is a specific character (and weighted by count)
+
+#but we need to normalize this to convert to probabilities
+
+pi_hat = start_counts/N_total
+
+print(pi_hat)
+```
+
+
+
+```{r}
+#Based on Equation (6.6) in the manuscript. 
+
+#recall: this quantity (the numerator) answers the question "how often did the process see/experience i-->j transition" in the first order (k=1) case:
+
+#we first initialize a matrix of 27 by 27 and set all entries to 0. 
+
+N_ij = matrix(0, nrow=S, ncol=S, dimnames = list(from=states, to =states))
+
+#then we loop over the time steps and add these weighted transition counts
+
+for (t in 1:(L_time-1)){
+  
+  from = t_cols[,t] #basically extracting the "i"'s
+  to = t_cols[,t+1] #next time step, so extracting the "j"'s. 
+  
+ from_rep = rep(from, times = df$count) #counting
+ to_rep = rep(to, times = df$count) #counting
+ 
+ step_counts = table(factor(from_rep, levels=states),
+ factor(to_rep, levels=states))
+ 
+ N_ij = N_ij+step_counts
+}
+```
+
+```{r}
+#now dealing with N_i:
+
+# N_i counts how many times state i appears as the current state
+# before a transition to some next state j, including j = i.
+
+N_i = rowSums(N_ij) #denominator for each row: total transitions starting from state i
+
+
+```
+
+```{r}
+#Final computation:
+
+# Normalizing each row to turn counts into probabilities
+A_hat = N_ij
+for (i in 1:S) {
+  if (N_i[i] > 0) {
+    A_hat[i, ] = N_ij[i, ] / N_i[i]
+  } else {
+    A_hat[i, ] = 0
+  }
+}
+```
+
+
+```{r}
+print(pi_hat)
+```
+Preliminary conclusions: 
+
+15% of words start with t. 
+8% of words start with a. 
+8% of words start with s. 
+
+These observations can be added to the paper.  
+
+Example of building a sub-matrix (based on common bigrams from the following website:) 
+
+https://mathcenter.oxford.emory.edu/site/math125/englishLetterFreqs/
+
+
+```{r}
+#choosing our sub-matrix thoughtfully:
+from_sel <- c("t", "h", "i", "e", "n") #from most common bigrams
+to_sel   <- c("h", "e", "n", "s", "t")
+
+A_5x5 <- A_hat[from_sel, to_sel] #sub-matrix to be displayed in the paper
+round(A_5x5, 3)
+
+
+```
+
+##########################################################################
+
+## MLE computation for the Non-Homogeneous Case:
+
+
+```{r}
+# initializing and creating empty containers
+N_list = vector("list", L - 1)   # the counts per time
+A_list = vector("list", L - 1)   #the  probs per time
+
+# Looping over time steps
+for (t in 1:(L_time - 1)) {
+
+  # again, obtaining the from/to symbols at this time step
+  from = df[[paste0("t", t)]]
+  to   = df[[paste0("t", t + 1)]]
+
+  # replicating each row count times 
+  from_rep = rep(from, times = df$count)
+  to_rep   = rep(to,   times = df$count)
+
+  # counting transitions i->j at this time step using table
+  N_t = table(
+    factor(from_rep, levels = states),
+    factor(to_rep,   levels = states)
+  )
+
+  # converting to numeric matrix
+  N_t = as.matrix(N_t)
+
+  # normalizing the rows to get probabilities
+  row_sums = rowSums(N_t)
+  A_t = N_t
+  for (i in 1:S) {
+    if (row_sums[i] > 0) A_t[i, ] = N_t[i, ] / row_sums[i]
+    else A_t[i, ] = 0
+  }
+
+  # storing at each iteration
+  N_list[[t]] = N_t
+  A_list[[t]] = A_t
+
+  cat("Done t =", t, "->", t + 1, "\n")
+}
+
+```
+# Displaying the results in a useful way to include in the paper
+
+```{r}
+# choosing useful transitions to track (Table 4 in the paper)
+pairs = list(
+  c("t","h"),
+  c("h","e"),
+  c("i","n"),
+  c("e","r"),
+  c("a","l")
+  
+)
+
+# Building a data frame
+res = data.frame(
+  t = 1:(L_time-1)
+)
+
+for (p in pairs) {
+  lab = paste0(p[1], "->", ifelse(p[2]==" ","space",p[2]))
+  res[[lab]] = sapply(A_list, function(A) A[p[1], p[2]])
+}
+
+round(res, 4)
+
+```
+ In this above table, the R output ``t=1`` is looking at transition pair/selected letter pair ($X_1 \rightarrow X_2$) (this corresponds to $l=2$ in the Table 4 of the manuscript). Similarly, position $13\rightarrow 14$ is designated by $l=14$ in Table 4, but by the row $t=13$ in this R code.  
+
+####################################################################################################################################################
+
+## Higher Order and Reversible-Illness Death Model
+
+
+```{r}
+#Mapping letters now to the reduced 3-state state space: (V,C,space)
+
+vowels = c("a","e","i","o","u") #selecting the vowels
+
+#creating a function
+
+# x is a vector of characters we input to the function
+
+# We will use S to designate a space in the new dataframe
+to_VCspace = function(x) {
+  
+  out = ifelse(x == " ", "S",            # S for space (absorbing)
+                ifelse(x %in% vowels, "V", "C"))
+  out
+}
+
+states3 = c("V","C","S")
+
+```
+
+```{r}
+# Extracting time columns
+t_cols <- df[, paste0("t", 1:T_horizon), drop = FALSE]
+
+# check: this should be a data frame
+str(t_cols)
+
+# Safety check: all selected columns should be character columns
+sapply(t_cols, is.character)
+
+# apply the mapping we made above to each time column so we are re-making our df
+
+X <- as.data.frame(
+  lapply(t_cols, to_VCspace), # each column gets passed to the function we made above
+  stringsAsFactors = FALSE
+)
+
+# Keeping the same column names
+names(X) <- names(t_cols)
+
+# Safety checks
+stopifnot(ncol(X) == T_horizon)
+stopifnot(identical(names(X), names(t_cols)))
+
+head(X)
+
+```
+
+## Saving the File: 
+
+```{r}
+write.csv(X, "consonant-vowels_final_github.csv", row.names=FALSE)
+```
+
+## Working with the Inference and Estimation 
+
+```{r}
+## 
+
+contexts = c("VV","VC","CV","CC") #establishing the available pairs of states for the two previous time steps (ie: the previous two symbols). 
+
+next_states = c("V","C","S") #what the next available state can be (it can be the whole reduced three-state state space $S^{*}$ according to Overleaf notation)
+
+# count table: rows = pairs of the last two states (V,C), cols = next state
+C_ctx <- matrix(
+  0,
+  nrow = length(contexts), #length of rows,
+  ncol = length(next_states),#length of columns,
+  dimnames = list(
+    context = contexts,
+    next_state = next_states
+  )
+)
+
+#iterating:
+
+for (t in 2:(L_time - 1)) {
+  prev = X[[paste0("t", t - 1)]] #the letter at position l-2
+  curr = X[[paste0("t", t)]] #the letter at position l-1
+  nxt  = X[[paste0("t", t + 1)]] #the letter at position l
+
+  # only contexts where prev and curr are in {V,C}
+  
+  
+   #only interested in previous ones that are V or C
+  
+  keep = (prev != "S")  & (curr != "S")   # after S, we don't care (absorbing padding)
+
+  if (!any(keep)) next
+  
+  #here we deal with the multiplicities:
+
+  prev_rep = rep(prev[keep], times = df$count[keep])
+  curr_rep = rep(curr[keep], times = df$count[keep])
+  nxt_rep  = rep(nxt[keep],  times = df$count[keep])
+
+  ctx_rep = paste0(prev_rep, curr_rep)   # "VV","VC","CV","CC"
+
+  step_counts = table(factor(ctx_rep, levels = contexts),
+                       factor(nxt_rep, levels = next_states))
+
+  C_ctx = C_ctx + as.matrix(step_counts)
+}
+
+# row-normalize to get probabilities
+rs = rowSums(C_ctx)
+A2_ctx = C_ctx
+for (r in 1:nrow(C_ctx)) {
+  if (rs[r] > 0) A2_ctx[r,] = C_ctx[r,] / rs[r]
+  else A2_ctx[r,] = 0
+}
+
+A2_ctx
+
+```
+
+## MLE of the Initial Distribution
+
+```{r}
+
+contexts = c("VV","VC","CV","CC")
+
+x1 = X$t1
+x2 = X$t2
+
+# keep only starts where both are V or C (exclude any early S just in case)
+keep12 = (x1 != "S") & (x2 != "S")
+
+# expand by multiplicities 
+x1_rep = rep(x1[keep12], times = df$count[keep12])
+x2_rep = rep(x2[keep12], times = df$count[keep12])
+
+ctx_rep = paste0(x1_rep, x2_rep)
+
+# counts of starting contexts
+M_ctx = table(factor(ctx_rep, levels = contexts))
+M_ctx
+
+# normalizing so that they are probabilities indeed
+pi2_hat = as.numeric(M_ctx) / sum(M_ctx)
+names(pi2_hat) = contexts
+pi2_hat
+
+```
+
+## Addressing additional reviewer comments: 
+
+Here, we want to take care of the following comment: 
+
+*In light of the observation from Chapter 6, Example 4, the ordering of paths or words in the MLE may not match the ordering of paths or words in the observations. It would be interesting to identify a few outlier words in either direction in the dataset.*
+
+```{r}
+## Code chunk to observe and work with the words whose observed and MLE rankings may differ ## . 
+
+
+# Recall: This diagnostic is based on our R object "df", which is the cleaned Shakespeare corpus.
+
+# also: each row of df is one distinct Markov trajectory/word,
+
+# and df$count gives the number of times that word occurs in the corpus.
+
+# Making sure pi_hat has all 27 states, including zero entries if needed
+pi_full <- setNames(rep(0, length(states)), states)
+pi_full[names(pi_hat)] <- pi_hat
+
+# a function to compute fitted path probability under the homogeneous MLE case
+path_prob_homogeneous <- function(path, pi, A) {
+  # path is a character vector, e.g. c("t","h","e"," "," ",...)
+  
+  p <- pi[path[1]]
+  
+  for (tt in 1:(length(path) - 1)) {
+    p <- p * A[path[tt], path[tt + 1]]
+  }
+  
+  return(as.numeric(p))
+}
+
+# Extracting the trajectory columns t1, ..., t_{L+1}
+t_cols <- df[, paste0("t", 1:T_horizon), drop = FALSE]
+
+# Safety check
+stopifnot(ncol(t_cols) == T_horizon)
+
+# Computing the fitted MLE probability for each distinct word/path
+df$phat_mle <- apply(t_cols, 1, path_prob_homogeneous, pi = pi_full, A = A_hat)
+
+# empirical word proportion
+df$empirical <- df$count / sum(df$count)
+
+# reconstruct the word, removing padding spaces
+df$word <- apply(t_cols, 1, function(x) paste0(x[x != " "], collapse = ""))
+
+# We have the following interpreation: Rank 1 = most frequent / largest probability
+df$rank_obs <- rank(-df$count, ties.method = "average")
+df$rank_mle <- rank(-df$phat_mle, ties.method = "average")
+
+# positive: word ranks higher in the observations than under the MLE
+# negative: word ranks higher under the MLE than in the observations
+df$rank_diff <- df$rank_mle - df$rank_obs
+
+# avoiding extremely rare words dominating the table
+df_check <- subset(df, count >= 5)
+
+# Words more prominent in the observations than under the MLE
+obs_higher <- df_check[order(-df_check$rank_diff),
+                       c("word", "count", "empirical", "phat_mle",
+                         "rank_obs", "rank_mle", "rank_diff")]
+
+# Words more prominent under the MLE than in the observations
+mle_higher <- df_check[order(df_check$rank_diff),
+                       c("word", "count", "empirical", "phat_mle",
+                         "rank_obs", "rank_mle", "rank_diff")]
+
+# Display the largest discrepancies for both directions, as suggested by the reviewer. 
+head(obs_higher, 10)
+head(mle_higher, 10)
+```
+ 
+##Finally, making a succint table for the paper: 
+
+```{r}
+
+outlier_table <- rbind(
+  data.frame(direction = "Higher in observations", head(obs_higher, 3)),
+  data.frame(direction = "Higher under MLE", head(mle_higher, 3))
+)
+
+# Rounding numerical columns for readability sake
+outlier_table$empirical <- signif(outlier_table$empirical, 4)
+outlier_table$phat_mle <- signif(outlier_table$phat_mle, 4)
+outlier_table$rank_obs <- round(outlier_table$rank_obs, 1)
+outlier_table$rank_mle <- round(outlier_table$rank_mle, 1)
+outlier_table$rank_diff <- round(outlier_table$rank_diff, 1)
+
+outlier_table
+```
+Completed code. June 2026. 
+
+
